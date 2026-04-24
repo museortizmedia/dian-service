@@ -8,7 +8,6 @@ app.use(cors())
 app.use(express.json({ limit: "20mb" }))
 
 app.post("/dian/send", async (req, res) => {
-
     try {
 
         const {
@@ -31,9 +30,7 @@ app.post("/dian/send", async (req, res) => {
         const security = new soap.WSSecurityCert(
             cert,
             certPassword,
-            {
-                hasTimeStamp: true
-            }
+            { hasTimeStamp: true }
         )
 
         client.setSecurity(security)
@@ -42,45 +39,38 @@ app.post("/dian/send", async (req, res) => {
 
         if (mode === "test") {
 
-            const args = {
-                fileName,
-                contentFile: xml,
-                testSetId
-            }
-
             const [response] =
-                await client.SendTestSetAsync(args)
+                await client.SendTestSetAsync({
+                    fileName,
+                    contentFile: xml,
+                    testSetId
+                })
 
             result = response
 
         } else {
 
-            const args = {
-                fileName,
-                contentFile: xml
-            }
-
             const [response] =
-                await client.SendBillSyncAsync(args)
+                await client.SendBillSyncAsync({
+                    fileName,
+                    contentFile: xml
+                })
 
             result = response
-
         }
 
-        res.json({
-            success: true,
-            result
-        })
+        res.json(result)
 
     } catch (error) {
 
         res.status(500).json({
-            success: false,
             error: error.message
         })
-
     }
-
 })
 
-app.listen(3000)
+const PORT = process.env.PORT || 3000
+
+app.listen(PORT, () => {
+    console.log("DIAN service running on port", PORT)
+})
