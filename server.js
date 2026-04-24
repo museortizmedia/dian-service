@@ -3,16 +3,29 @@ import soap from "soap"
 import cors from "cors"
 import forge from "node-forge"
 import { SignedXml } from "xml-crypto"
-import { DOMParser } from "xmldom"
 
 const app = express()
 
 app.use(cors())
 app.use(express.json({ limit: "20mb" }))
 
+/*
+DESENCRIPTAR CERT (btoa frontend)
+*/
+function decryptCert(encrypted) {
+
+    return Buffer
+        .from(encrypted, "base64")
+        .toString("utf8")
+}
+
+/*
+EXTRAER KEY + CERT DEL P12
+*/
 function extractCert(p12Base64, password) {
 
-    const p12Der = forge.util.decode64(p12Base64)
+    const p12Der =
+        forge.util.decode64(p12Base64)
 
     const p12Asn1 =
         forge.asn1.fromDer(p12Der)
@@ -30,16 +43,24 @@ function extractCert(p12Base64, password) {
 
         for (const safeBag of safeContent.safeBags) {
 
-            if (safeBag.type === forge.pki.oids.pkcs8ShroudedKeyBag) {
-                key = forge.pki.privateKeyToPem(
-                    safeBag.key
-                )
+            if (
+                safeBag.type ===
+                forge.pki.oids.pkcs8ShroudedKeyBag
+            ) {
+                key =
+                    forge.pki.privateKeyToPem(
+                        safeBag.key
+                    )
             }
 
-            if (safeBag.type === forge.pki.oids.certBag) {
-                cert = forge.pki.certificateToPem(
-                    safeBag.cert
-                )
+            if (
+                safeBag.type ===
+                forge.pki.oids.certBag
+            ) {
+                cert =
+                    forge.pki.certificateToPem(
+                        safeBag.cert
+                    )
             }
         }
     }
@@ -47,6 +68,9 @@ function extractCert(p12Base64, password) {
     return { key, cert }
 }
 
+/*
+FIRMAR XML
+*/
 function signXml(xml, key, cert) {
 
     const sig = new SignedXml()
@@ -59,11 +83,19 @@ function signXml(xml, key, cert) {
 
     sig.keyInfoProvider = {
         getKeyInfo() {
-            return `<X509Data><X509Certificate>${cert
-                    .replace("-----BEGIN CERTIFICATE-----", "")
-                    .replace("-----END CERTIFICATE-----", "")
+            return `<X509Data>
+            <X509Certificate>${cert
+                    .replace(
+                        "-----BEGIN CERTIFICATE-----",
+                        ""
+                    )
+                    .replace(
+                        "-----END CERTIFICATE-----",
+                        ""
+                    )
                     .replace(/\n/g, "")
-                }</X509Certificate></X509Data>`
+                }</X509Certificate>
+            </X509Data>`
         }
     }
 
@@ -72,6 +104,9 @@ function signXml(xml, key, cert) {
     return sig.getSignedXml()
 }
 
+/*
+ENDPOINT DIAN
+*/
 app.post("/dian/send", async (req, res) => {
 
     try {
@@ -86,12 +121,30 @@ app.post("/dian/send", async (req, res) => {
             certPassword
         } = req.body
 
-        const { key, cert: certPem } =
-            extractCert(cert, certPassword)
+        /*
+        DESENCRIPTAR CERT
+        */
+        const decryptedCert =
+            decryptCert(cert)
 
+        /*
+        EXTRAER KEY + CERT
+        */
+        const { key, cert: certPem } =
+            extractCert(
+                decryptedCert,
+                certPassword
+            )
+
+        /*
+        FIRMAR XML
+        */
         const xmlFirmado =
             signXml(xml, key, certPem)
 
+        /*
+        DIAN WSDL
+        */
         const wsdl =
             environment === "habilitacion"
                 ? "https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc?wsdl"
@@ -100,6 +153,9 @@ app.post("/dian/send", async (req, res) => {
         const client =
             await soap.createClientAsync(wsdl)
 
+        /*
+        WS SECURITY
+        */
         const security =
             new soap.WSSecurityCert(
                 certPem,
@@ -111,6 +167,9 @@ app.post("/dian/send", async (req, res) => {
 
         let result
 
+        /*
+        TEST SET
+        */
         if (mode === "test") {
 
             const [response] =
@@ -125,7 +184,11 @@ app.post("/dian/send", async (req, res) => {
 
             result = response
 
-        } else {
+        }
+        /*
+        FACTURA REAL
+        */
+        else {
 
             const [response] =
                 await client.SendBillSyncAsync({
